@@ -12,6 +12,91 @@ app = FastAPI(title="PLC Telemetry MVP (Lee SQLite local)")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
+@app.get("/dashboard-hmi", response_class=HTMLResponse)
+def dashboard_hmi(device_id: str = Query("equipo1")):
+    return f"""
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard HMI {device_id}</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 12px; }}
+    .container {{ max-width: 1000px; margin: 0 auto; }}
+    .card {{ border: 1px solid #ddd; border-radius: 10px; padding: 10px; margin-bottom: 10px; }}
+    .row {{ display: flex; gap: 10px; flex-wrap: wrap; }}
+    .kpi {{ min-width: 140px; }}
+    .label {{ color: #555; font-size: 13px; }}
+    .value {{ font-size: 22px; font-weight: bold; }}
+    .muted {{ color: #777; font-size: 13px; }}
+
+    /* tabla: compatible + evita romper layout */
+    .table-wrap {{ overflow-x: auto; }}
+    table {{ border-collapse: collapse; width: 100%; min-width: 900px; }}
+    th, td {{ border: 1px solid #ddd; padding: 8px; font-size: 14px; }}
+    th {{ background: #f5f5f5; text-align: left; }}
+
+    /* progreso: sin transition (HMI-friendly) */
+    .progress-box {{ position: fixed; top: 12px; right: 12px; width: 40vw; max-width: 220px; min-width: 160px; }}
+    .progress-bar {{ height: 10px; border: 1px solid #ddd; border-radius: 999px; overflow: hidden; background: #f5f5f5; }}
+    #rowProgress {{ height: 100%; width: 100%; background: #4caf50; }}
+  </style>
+</head>
+
+<body data-device-id="{device_id}">
+  <div class="container">
+    <h2>Equipo: <span id="device">{device_id}</span> <span class="muted">(HMI)</span></h2>
+
+    <div class="progress-box">
+      <div style="font-size: 12px; color: #555; margin-bottom: 6px;">
+        Próxima fila en: <span id="rowCountdown">--</span>s
+      </div>
+      <div class="progress-bar">
+        <div id="rowProgress"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="muted">
+        Última actualización: <span id="ts">--</span> | Nº tomas=<span id="n">--</span>
+      </div>
+
+      <div class="row" style="margin-top: 10px;">
+        <div class="kpi"><div class="label">pH</div><div class="value" id="ph">--</div></div>
+        <div class="kpi"><div class="label">Cloro Libre</div><div class="value" id="cloro">--</div></div>
+        <div class="kpi"><div class="label">Turbidez</div><div class="value" id="turbidez">--</div></div>
+        <div class="kpi"><div class="label">Temperatura</div><div class="value" id="temperatura">--</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="muted">Histórico (últimos 20 registros)</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>pH</th>
+              <th>Cloro Libre</th>
+              <th>Turbidez</th>
+              <th>Temperatura</th>
+              <th>Nº tomas</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="muted" id="status">Conectando…</div>
+
+    <script src="/static/js/Dashboard.es5.js"></script>
+  </div>
+</body>
+</html>
+"""
+
 @app.get("/api/v1/devices/{device_id}/latest")
 def latest(device_id: str):
     db = SessionLocal()

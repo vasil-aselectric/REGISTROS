@@ -9,8 +9,8 @@ import serial
 # =========================
 # CONFIG (NO TOCAR CONEXIÓN)
 # =========================
-PLC_COM = "COM5"
-PLC_BAUD = 9600
+PLC_COM = "COM8"
+PLC_BAUD = 38400
 PLC_SLAVE_ID = 1
 
 SAMPLE_EVERY_SECONDS = 5       # cada 5 s
@@ -29,11 +29,11 @@ NUM_CHANNELS = 4
 def make_instrument() -> minimalmodbus.Instrument:
     inst = minimalmodbus.Instrument(PLC_COM, PLC_SLAVE_ID)
     inst.serial.baudrate = PLC_BAUD
-    inst.serial.bytesize = 7
-    inst.serial.parity = serial.PARITY_EVEN
+    inst.serial.bytesize = 8
+    inst.serial.parity = serial.PARITY_NONE
     inst.serial.stopbits = 1
-    inst.serial.timeout = 1
-    inst.mode = minimalmodbus.MODE_ASCII
+    inst.serial.timeout = 3
+    inst.mode = minimalmodbus.MODE_RTU
     inst.clear_buffers_before_each_transaction = True
     inst.debug = False
     return inst
