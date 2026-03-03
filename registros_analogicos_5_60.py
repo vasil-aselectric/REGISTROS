@@ -3,41 +3,15 @@ import sqlite3
 from datetime import datetime, timedelta
 
 import minimalmodbus
-import serial
-
+from app.conexion import make_instrument, read_4_ai, D_START, NUM_CHANNELS
 
 # =========================
-# CONFIG (NO TOCAR CONEXIÓN)
+# CONFIG
 # =========================
-PLC_COM = "COM8"
-PLC_BAUD = 38400
-PLC_SLAVE_ID = 1
-
-SAMPLE_EVERY_SECONDS = 5       # cada 5 s
-REPORT_EVERY_SECONDS = 60      # informe cada 60 s (promedio del último minuto)
-
 DB_PATH = "plc_analog_log_test_5s_60s.sqlite3"
 
-# Canales: D1110..D1113  (AD0..AD3)
-D_START = 1110
-NUM_CHANNELS = 4
-
-
-# =========================
-# MODBUS / PLC
-# =========================
-def make_instrument() -> minimalmodbus.Instrument:
-    inst = minimalmodbus.Instrument(PLC_COM, PLC_SLAVE_ID)
-    inst.serial.baudrate = PLC_BAUD
-    inst.serial.bytesize = 8
-    inst.serial.parity = serial.PARITY_NONE
-    inst.serial.stopbits = 1
-    inst.serial.timeout = 3
-    inst.mode = minimalmodbus.MODE_RTU
-    inst.clear_buffers_before_each_transaction = True
-    inst.debug = False
-    return inst
-
+SAMPLE_EVERY_SECONDS = 5       # cada 5 s
+REPORT_EVERY_SECONDS = 60      # promedio cada 60 s
 
 def modbus_addr_for_D(d_number: int) -> int:
     # Dn -> 4096 + n  (ej: D50 -> 4146)

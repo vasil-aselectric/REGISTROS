@@ -1,15 +1,24 @@
-from fastapi import FastAPI, HTTPException, Query, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Query, Response, Body
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from datetime import datetime, timezone
 
 from .database import SessionLocal
+
 from .models import MinuteAvg
 
 from typing import List
 
-from fastapi.staticfiles import StaticFiles
+
+from app.sim.plc_sim import PlcSim
+
+sim = PlcSim()
+sim.start()
 
 app = FastAPI(title="PLC Telemetry MVP (Lee SQLite local)")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -93,6 +102,7 @@ def dashboard_hmi(device_id: str = Query("equipo1")):
 </body>
 </html>
 """
+
 
 @app.get("/api/v1/devices/{device_id}/latest")
 def latest(device_id: str):
@@ -402,3 +412,154 @@ def recent(device_id: str, limit: int = 20):
 @app.get("/")
 def root():
     return {"ok": True, "hint": "Visita /dashboard?device_id=equipo1"}
+
+# Simulador PLC (opcional, para desarrollo sin datos reales)
+
+@app.get("/api/v1/sim/latest")
+def sim_latest():
+    data = sim.get_state()
+    data["ts"] = datetime.now(timezone.utc).isoformat()
+    return data
+
+@app.post("/api/v1/sim/write")
+def sim_write(payload: dict = Body(...)):
+    # payload esperado: {"tag":"cloro", "value":1.7}
+    tag = str(payload.get("tag", "")).strip().lower()
+    value = payload.get("value", None)
+
+    if value is None:
+        return JSONResponse({"ok": False, "error": "Missing value"}, status_code=400)
+
+    try:
+        sim.set_value(tag, float(value))
+        return {"ok": True, "tag": tag, "value": float(value)}
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    
+
+    from fastapi.responses import HTMLResponse
+
+@app.get("/sim-ui", response_class=HTMLResponse)
+def sim_ui():
+    return """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simulación Analógicos</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 12px; }
+    .container { max-width: 1000px; margin: 0 auto; }
+    .row { display:flex; gap:24px; align-items:flex-end; flex-wrap:wrap; }
+    .card { border:1px solid #ddd; border-radius:12px; padding:12px; width: 240px; }
+    .title { font-weight:bold; margin-bottom:8px; }
+    .value { font-size:22px; font-weight:bold; }
+    .muted { color:#666; font-size:13px; }
+
+    /* Slider vertical “compatible” */
+    .vwrap { height: 260px; display:flex; align-items:center; justify-content:center; }
+    input[type="range"].v {
+      width: 260px;
+      transform: rotate(-90deg);
+    }
+
+    button { padding:8px 10px; border:1px solid #bbb; border-radius:10px; background:#f7f7f7; cursor:pointer; }
+    #status { margin-top: 10px; color:#333; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Simulación sensores analógicos (solo: Cloro, Turbidez, Temperatura)</h2>
+    <div class="muted">pH (ch0) sigue siendo real. Estos sliders solo afectan al modo demo.</div>
+
+    <div class="row" style="margin-top:14px;">
+      <div class="card">
+        <div class="title">Cloro libre (0..5)</div>
+        <div class="value"><span id="cloroVal">--</span></div>
+        <div class="vwrap">
+          <input class="v" id="cloro" type="range" min="0" max="5" step="0.1" value="1.2">
+        </div>
+        <button onclick="send('cloro')">Aplicar</button>
+      </div>
+
+      <div class="card">
+        <div class="title">Turbidez (0..10)</div>
+        <div class="value"><span id="turbidezVal">--</span></div>
+        <div class="vwrap">
+          <input class="v" id="turbidez" type="range" min="0" max="10" step="0.1" value="0.8">
+        </div>
+        <button onclick="send('turbidez')">Aplicar</button>
+      </div>
+
+      <div class="card">
+        <div class="title">Temperatura (0..60)</div>
+        <div class="value"><span id="tempVal">--</span> °C</div>
+        <div class="vwrap">
+          <input class="v" id="temperatura" type="range" min="0" max="60" step="0.5" value="24">
+        </div>
+        <button onclick="send('temperatura')">Aplicar</button>
+      </div>
+    </div>
+
+    <div id="status">Cargando…</div>
+  </div>
+
+<script>
+  function $(id){ return document.getElementById(id); }
+
+  function refresh() {
+    var xhr = new XMLHttpRequest();
+    xhr.open("GET", "/api/v1/sim/latest", true);
+    xhr.onreadystatechange = function(){
+      if (xhr.readyState !== 4) return;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        var data = JSON.parse(xhr.responseText);
+
+        $("cloroVal").innerHTML = data.cloro.toFixed(2);
+        $("turbidezVal").innerHTML = data.turbidez.toFixed(2);
+        $("tempVal").innerHTML = data.temperatura.toFixed(1);
+
+        $("cloro").value = data.cloro;
+        $("turbidez").value = data.turbidez;
+        $("temperatura").value = data.temperatura;
+
+        $("status").innerHTML = "OK " + (data.ts || "");
+      } else {
+        $("status").innerHTML = "ERROR " + xhr.status;
+      }
+    };
+    xhr.send(null);
+  }
+
+  function send(tag) {
+    var value = $(tag).value;
+
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/v1/sim/write", true);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.onreadystatechange = function(){
+      if (xhr.readyState !== 4) return;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        $("status").innerHTML = "Aplicado: " + tag + " = " + value;
+        refresh();
+      } else {
+        try {
+          var e = JSON.parse(xhr.responseText);
+          $("status").innerHTML = "ERROR: " + (e.error || xhr.status);
+        } catch(_) {
+          $("status").innerHTML = "ERROR " + xhr.status;
+        }
+      }
+    };
+
+    xhr.send(JSON.stringify({ tag: tag, value: Number(value) }));
+  }
+
+  // refresco periódico (barato)
+  refresh();
+  setInterval(refresh, 3000);
+</script>
+</body>
+</html>
+"""
