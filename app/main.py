@@ -10,6 +10,18 @@ from .models import MinuteAvg
 
 from typing import List
 
+import threading
+from app.conexion import make_instrument, write_D
+
+plc_inst = make_instrument()
+plc_lock = threading.Lock()
+
+TAG_TO_D = {
+    "cloro": 15,
+    "turbidez": 16,
+    "temperatura": 17,
+}
+
 
 from app.sim.plc_sim import PlcSim
 
@@ -421,26 +433,114 @@ def sim_latest():
     data["ts"] = datetime.now(timezone.utc).isoformat()
     return data
 
+
 @app.post("/api/v1/sim/write")
 def sim_write(payload: dict = Body(...)):
-    # payload esperado: {"tag":"cloro", "value":1.7}
     tag = str(payload.get("tag", "")).strip().lower()
     value = payload.get("value", None)
 
+    if tag not in TAG_TO_D:
+        return JSONResponse({"ok": False, "error": "Invalid tag"}, status_code=400)
     if value is None:
         return JSONResponse({"ok": False, "error": "Missing value"}, status_code=400)
 
+    # Solo enteros 4..20
     try:
-        sim.set_value(tag, float(value))
-        return {"ok": True, "tag": tag, "value": float(value)}
-    except ValueError as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
-    
+        ivalue = int(value)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Value must be integer"}, status_code=400)
 
-    from fastapi.responses import HTMLResponse
+    if ivalue < 4 or ivalue > 20:
+        return JSONResponse({"ok": False, "error": "Value out of range (4..20)"}, status_code=400)
+
+    d = TAG_TO_D[tag]
+
+    try:
+        with plc_lock:
+            write_D(plc_inst, d, ivalue)
+        return {"ok": True, "tag": tag, "d": d, "value": ivalue}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 @app.get("/sim-ui", response_class=HTMLResponse)
 def sim_ui():
+    return """
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sim Write D15-D17</title>
+<style>
+  body{font-family:Arial;margin:12px}
+  .row{display:flex;gap:18px;flex-wrap:wrap}
+  .card{border:1px solid #ddd;border-radius:12px;padding:12px;width:220px}
+  .vwrap{height:260px;display:flex;align-items:center;justify-content:center}
+  input[type=range].v{width:260px;transform:rotate(-90deg)}
+  .value{font-size:22px;font-weight:bold}
+  .muted{color:#666;font-size:13px}
+</style>
+</head>
+<body>
+<h2>Escritura PLC (D15/D16/D17) — valores 4..20</h2>
+<div class="row">
+  <div class="card">
+    <div><b>Cloro → D15</b></div>
+    <div class="value" id="cloroVal">--</div>
+    <div class="vwrap"><input class="v" id="cloro" type="range" min="4" max="20" step="1" value="12"></div>
+    <button onclick="send('cloro')">Enviar</button>
+  </div>
+
+  <div class="card">
+    <div><b>Turbidez → D16</b></div>
+    <div class="value" id="turbidezVal">--</div>
+    <div class="vwrap"><input class="v" id="turbidez" type="range" min="4" max="20" step="1" value="10"></div>
+    <button onclick="send('turbidez')">Enviar</button>
+  </div>
+
+  <div class="card">
+    <div><b>Temperatura → D17</b></div>
+    <div class="value" id="temperaturaVal">--</div>
+    <div class="vwrap"><input class="v" id="temperatura" type="range" min="4" max="20" step="1" value="15"></div>
+    <button onclick="send('temperatura')">Enviar</button>
+  </div>
+</div>
+
+<div class="muted" id="status" style="margin-top:12px;">Listo</div>
+
+<script>
+function $(id){return document.getElementById(id);}
+
+function syncLabels(){
+  $("cloroVal").innerHTML = $("cloro").value;
+  $("turbidezVal").innerHTML = $("turbidez").value;
+  $("temperaturaVal").innerHTML = $("temperatura").value;
+}
+$("cloro").oninput = syncLabels;
+$("turbidez").oninput = syncLabels;
+$("temperatura").oninput = syncLabels;
+syncLabels();
+
+function send(tag){
+  var v = parseInt($(tag).value,10);
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST","/api/v1/sim/write",true);
+  xhr.setRequestHeader("Content-Type","application/json");
+  xhr.onreadystatechange = function(){
+    if(xhr.readyState!==4) return;
+    if(xhr.status>=200 && xhr.status<300){
+      $("status").innerHTML = "OK: " + tag + " = " + v;
+    } else {
+      try{ var e=JSON.parse(xhr.responseText); $("status").innerHTML="ERROR: "+(e.error||xhr.status); }
+      catch(_){ $("status").innerHTML="ERROR "+xhr.status; }
+    }
+  };
+  xhr.send(JSON.stringify({tag: tag, value: v}));
+}
+</script>
+</body>
+</html>
+"""
     return """
 <!doctype html>
 <html>
