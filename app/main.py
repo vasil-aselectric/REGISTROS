@@ -1,5 +1,5 @@
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .database import SessionLocal
 from .models import MinuteAvg
@@ -10,6 +10,11 @@ from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="PLC Telemetry MVP (Lee SQLite local)")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return RedirectResponse(url="/static/favicons/favicon-32x32.png")
 
 
 @app.get("/dashboard-hmi", response_class=HTMLResponse)
@@ -38,7 +43,7 @@ def dashboard_hmi(device_id: str = Query("equipo1")):
     th {{ background: #f5f5f5; text-align: left; }}
 
     /* progreso: sin transition (HMI-friendly) */
-    .progress-box {{ position: fixed; top: 12px; right: 12px; width: 40vw; max-width: 220px; min-width: 160px; }}
+    
     .progress-bar {{ height: 10px; border: 1px solid #ddd; border-radius: 999px; overflow: hidden; background: #f5f5f5; }}
     #rowProgress {{ height: 100%; width: 100%; background: #4caf50; }}
   </style>
@@ -48,14 +53,6 @@ def dashboard_hmi(device_id: str = Query("equipo1")):
   <div class="container">
     <h2>Equipo: <span id="device">{device_id}</span> <span class="muted">(HMI)</span></h2>
 
-    <div class="progress-box">
-      <div style="font-size: 12px; color: #555; margin-bottom: 6px;">
-        Próxima fila en: <span id="rowCountdown">--</span>s
-      </div>
-      <div class="progress-bar">
-        <div id="rowProgress"></div>
-      </div>
-    </div>
 
     <div class="card">
       <div class="muted">
